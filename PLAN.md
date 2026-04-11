@@ -1,151 +1,200 @@
-# PLAN.md — 藏经阁建设计划
+# PLAN.md — 藏经阁持续运营计划
 
-> 本文档是藏经阁的建设路线图，持续迭代更新。
-> 每完成一个阶段，更新状态为 ✅ 并记录实际产出。
-
----
-
-## 阶段一：基础设施 ✅
-
-> 建立藏经阁的物理结构和执行规范
-
-| 任务 | 状态 | 产出 |
-|------|------|------|
-| Git 仓库初始化 | ✅ | `git@github.com:Dengguiling/self-knowledge-database.git` |
-| 目录结构搭建 | ✅ | 7个知识领域目录 |
-| SPEC.md 规范制定 | ✅ | 信源/模板/评审/变更管理规范 |
-| PLAN.md 计划制定 | ✅ | 本文档 |
-| SSH 通信配置 | ✅ | paramiko wrapper + ed25519 密钥 |
+> 本文档是藏经阁的**活文档**，记录建设路线、每日执行状态、质量指标。
+> 每次任务执行后自动更新，通过 git history 追溯所有变更。
 
 ---
 
-## 阶段二：DRM 子系统知识库（当前阶段）
+## 1. 总体架构
 
-> 以 Linux DRM/KMS 为首个完整试点，验证整套规范的可行性
+### 1.1 每日知识更新流水线
 
-### 2.1 子模块规划
+```
+每日定时触发（03:00 Asia/Shanghai）
+    │
+    ▼
+┌─────────────────────────────────┐
+│  总调度：读取 PLAN.md + _PROGRESS.md  │
+│  识别今日需要更新的知识方向            │
+│  生成 3 个方向的子任务               │
+└──────────┬──────────────────────┘
+           │
+     ┌─────┼─────┐
+     ▼     ▼     ▼
+  ┌─────┐┌─────┐┌─────┐
+  │ AI  ││ GPU ││Linux│  ← 3 个子 Agent 并行
+  │知识  ││图显  ││驱动  │
+  └──┬──┘└──┬──┘└──┬──┘
+     │     │     │
+     ▼     ▼     ▼
+  抓取数据（P0/P1 优先）
+     │
+     ▼
+  编写知识条目（遵循 SPEC.md 模板）
+     │
+     ▼
+  ┌──────────────┐
+  │  评审 Agent   │ ← 8 项 checklist
+  └──┬───────┬───┘
+     │       │
+   PASS    FAIL
+     │       │
+     ▼       ▼
+  入库     打回修改
+  commit   → 重新评审
+  push     → 直到 PASS
+     │
+     ▼
+  更新 _PROGRESS.md
+     │
+     ▼
+  所有方向完成 → 暂停今日任务
+```
 
-| 子模块 | 说明 | 预计条目数 | 优先级 |
-|--------|------|------------|--------|
-| atomic/ | Atomic 模式与状态管理 | 5-8 | P0 |
-| crtc/ | CRTC 子系统 | 3-5 | P0 |
-| plane/ | Plane 子系统 | 3-5 | P0 |
-| connector/ | Connector 与显示输出 | 3-5 | P1 |
-| encoder/ | Encoder 子系统 | 2-3 | P1 |
-| fb/ | Framebuffer 管理 | 2-3 | P1 |
-| property/ | DRM Property 系统 | 2-3 | P1 |
-| gem/ | GEM 内存管理 | 3-5 | P2 |
-| dma-buf/ | DMA-BUF 共享内存 | 2-3 | P2 |
-| debugfs/ | 调试接口 | 1-2 | P3 |
+### 1.2 上下文窗口管理
 
-### 2.2 执行步骤
+子 Agent 在执行过程中必须监控上下文消耗：
+- 每完成一个条目后，评估剩余上下文
+- 若剩余不足 30%，立即保存进度到 `_PROGRESS.md`
+- 标注断点：当前子模块、当前条目、已完成列表、待完成列表
+- 下次触发时从断点恢复，不重复已完成的工作
 
-| # | 任务 | 状态 | 说明 |
-|---|------|------|------|
-| 1 | 创建 DRM 模块目录结构 | ⬜ | atomic/, crtc/, plane/ 等子目录 |
-| 2 | 编写 DRM `_INDEX.md` | ⬜ | 模块概述 + 子模块导航 |
-| 3 | 编写 DRM `_GLOSSARY.md` | ⬜ | CRTC/Plane/Encoder 等核心术语 |
-| 4 | 编写 atomic/commit-flow.md | ⬜ | 首个完整条目，验证模板可行性 |
-| 5 | 评审 commit-flow.md | ⬜ | 执行 8 项 checklist |
-| 6 | 根据评审结果调整模板 | ⬜ | 若模板有问题，反馈到 SPEC.md |
-| 7 | 批量填充 atomic/ 子模块 | ⬜ | state-mgmt, helpers, nonblocking 等 |
-| 8 | 填充 crtc/ 子模块 | ⬜ | |
-| 9 | 填充 plane/ 子模块 | ⬜ | |
-| 10 | 填充其余子模块 | ⬜ | 按优先级逐步推进 |
+### 1.3 评审机制
 
-### 2.3 信源清单
+评审是**自动执行**的，不需要 Ling 人工审批：
+- 每个条目完成后立即触发评审
+- 评审严格遵循 SPEC.md 第8节的 8 项 checklist
+- PASS → 入库；FAIL → 打回修改，最多重试 3 次
+- 3 次仍不通过 → 标记为 `[需人工介入]`，在日报中汇报给 Ling
+- 所有评审结果记录到对应模块的 `_REVIEW-LOG.md`
 
+---
+
+## 2. 知识方向与优先级
+
+### 2.1 三大方向
+
+| 方向 | 模块 | 子模块 | 当前状态 |
+|------|------|--------|----------|
+| **Linux 驱动** | KB-LINUX-DRM | atomic, crtc, plane, connector, encoder, fb, property, gem, dma-buf | 🟡 建设中 |
+| **GPU/图显** | KB-LINUX-GPU-DRIVER, KB-GPU-ARCH, KB-GFX-API | driver-model, modeset, hw-specific, vulkan, dx12 | ⬜ 待启动 |
+| **AI** | KB-AI-LLM, KB-AI-INFRA, KB-AI-AGENT | llm, training, inference, agent, chip | ⬜ 待启动 |
+
+### 2.2 方向识别逻辑
+
+每日触发时，按以下优先级识别需要更新的方向：
+
+1. **断点恢复**：`_PROGRESS.md` 中有未完成的任务 → 优先恢复
+2. **上游变更**：检查内核/API/框架是否有新版本发布 → 触发相关条目复评
+3. **知识缺口**：PLAN.md 中标记为 ⬜ 的子模块 → 按优先级推进
+4. **Ling 反馈**：日常对话中 Ling 提到的知识盲区 → 优先补充
+
+---
+
+## 3. 子 Agent 任务分配
+
+### 3.1 Agent-A：Linux 驱动方向
+
+**负责模块：** KB-LINUX-DRM, KB-LINUX-GPU-DRIVER
+
+**信源清单：**
 | 信源 | 等级 | 覆盖范围 |
 |------|------|----------|
-| `kernel/Documentation/gpu/drm-kms.rst` | P0 | KMS 总体架构 |
-| `kernel/Documentation/gpu/drm-atomic.rst` | P0 | Atomic 模式 |
-| `drivers/gpu/drm/drm_atomic.c` | P0 | Atomic 实现 |
-| `drivers/gpu/drm/drm_atomic_helper.c` | P0 | Atomic Helper 实现 |
-| `include/drm/drm_atomic.h` | P0 | Atomic 数据结构 |
-| `include/drm/drm_crtc.h` | P0 | CRTC/Plane/Encoder 数据结构 |
-| `drivers/gpu/drm/drm_plane.c` | P0 | Plane 实现 |
-| LWN DRM 文章系列 | P2 | 补充背景知识 |
+| `kernel/Documentation/gpu/` | P0 | DRM/KMS 全部文档 |
+| `drivers/gpu/drm/` | P0 | DRM 核心实现 |
+| `include/drm/` | P0 | DRM 数据结构与 API |
+| LKML patch & discussion | P2 | 最新变更与设计决策 |
+| LWN GPU/DRM 文章 | P3 | 背景补充 |
+
+**当前子任务队列：**
+| # | 子模块 | 条目 | 状态 |
+|---|--------|------|------|
+| 1 | atomic | commit-flow | ⬜ |
+| 2 | atomic | state-mgmt | ⬜ |
+| 3 | atomic | helpers | ⬜ |
+| 4 | atomic | nonblocking | ⬜ |
+| 5 | crtc | crtc-state | ⬜ |
+| 6 | crtc | vblank | ⬜ |
+| 7 | plane | plane-state | ⬜ |
+| 8 | connector | connector-state | ⬜ |
+| 9 | encoder | encoder-state | ⬜ |
+| 10 | fb | framebuffer | ⬜ |
+| 11 | property | drm-property | ⬜ |
+| 12 | gem | gem-objects | ⬜ |
+| 13 | dma-buf | dma-buf-overview | ⬜ |
+
+### 3.2 Agent-B：GPU/图显方向
+
+**负责模块：** KB-GPU-ARCH, KB-GFX-API
+
+**信源清单：**
+| 信源 | 等级 | 覆盖范围 |
+|------|------|----------|
+| Vulkan Specification | P0 | Vulkan API 全部 |
+| DirectX 12 Documentation | P0 | DX12 API |
+| NVIDIA/A MD/Intel 白皮书 | P1 | GPU 架构细节 |
+| GPU Open | P2 | AMD 开源驱动文档 |
+| Mesa3D source & docs | P2 | 开源图形栈实现 |
+
+**当前子任务队列：**
+（待 Agent-A 完成后启动，队列待规划）
+
+### 3.3 Agent-C：AI 方向
+
+**负责模块：** KB-AI-LLM, KB-AI-INFRA, KB-AI-AGENT
+
+**信源清单：**
+| 信源 | 等级 | 覆盖范围 |
+|------|------|----------|
+| arXiv / NeurIPS / ICML 论文 | P0 | 前沿研究 |
+| HuggingFace / PyTorch / TensorFlow 官方文档 | P1 | 框架用法 |
+| NVIDIA CUDA/cuDNN 文档 | P1 | 推理/训练基础设施 |
+| OpenAI / Anthropic 技术报告 | P1 | 模型架构 |
+| 技术博客与社区讨论 | P3 | 趋势与补充 |
+
+**当前子任务队列：**
+（待 Agent-A 完成后启动，队列待规划）
 
 ---
 
-## 阶段三：GPU 驱动开发知识库
+## 4. 每日执行日志
 
-> 基于 DRM 基础，扩展到具体 GPU 驱动开发
+> 每日任务完成后自动追加记录
 
-| 子模块 | 说明 | 预计条目数 |
-|--------|------|------------|
-| driver-model/ | DRM 驱动模型（driver/load/probe） | 3-5 |
-| modeset/ | Modeset 流程与实现 | 3-5 |
-| hw-specific/ | 厂商特定实现（AMD/Intel/NVIDIA） | 5-10 |
-| firmware/ | GPU 固件加载 | 2-3 |
-| debug/ | GPU 驱动调试方法 | 2-3 |
+### 2026-04-11
+
+| 方向 | Agent | 状态 | 新增条目 | 评审结果 | 备注 |
+|------|-------|------|----------|----------|------|
+| — | — | ⬜ 未执行 | — | — | 基础设施搭建日 |
 
 ---
 
-## 阶段四：GPU 架构知识库
+## 5. 质量指标
 
-> 从驱动层上升到硬件架构层
+### 5.1 累计统计
 
-| 子模块 | 说明 | 预计条目数 |
-|--------|------|------------|
-| overview/ | 现代 GPU 架构总览 | 2-3 |
-| nvidia/ | NVIDIA GPU 架构（Turing/Ampere/Ada/Blackwell） | 5-8 |
-| amd/ | AMD GPU 架构（RDNA/CDNA） | 5-8 |
-| intel/ | Intel GPU 架构（Xe/Xe2） | 5-8 |
-| memory/ | GPU 显存架构（HBM/GDDR/VRAM） | 2-3 |
-| compute/ | 计算单元与调度 | 2-3 |
+| 指标 | 当前值 | 目标 |
+|------|--------|------|
+| 总条目数 | 0 | — |
+| 信源覆盖率（P0/P1） | — | 100% |
+| 评审首次通过率 | — | > 80% |
+| 交叉引用断链数 | — | 0 |
+| 平均置信度 | — | ≥ 4 |
 
----
+### 5.2 每周质量报告
 
-## 阶段五：图形 API 知识库
-
-| 子模块 | 说明 | 预计条目数 |
-|--------|------|------------|
-| vulkan/ | Vulkan API 核心概念 | 5-8 |
-| dx12/ | DirectX 12 API 核心概念 | 5-8 |
-| opengl/ | OpenGL（遗留，仅保留关键差异） | 2-3 |
-| swapchain/ | 画面呈现与同步 | 2-3 |
-| shader/ | 着色器与管线 | 3-5 |
+每周日生成一次质量报告，包含：
+- 本周新增/修改/过期条目统计
+- 评审通过率趋势
+- 信源分布（P0/P1/P2/P3 占比）
+- 断链与冲突清单
+- 下周计划
 
 ---
 
-## 阶段六：AI 知识库
-
-| 子模块 | 说明 | 预计条目数 |
-|--------|------|------------|
-| llm/ | 大语言模型架构（Transformer/注意力机制） | 5-8 |
-| training/ | 训练框架与优化 | 3-5 |
-| inference/ | 推理优化（量化/剪枝/蒸馏） | 3-5 |
-| agent/ | AI Agent 框架与工具链 | 3-5 |
-| chip/ | AI 芯片（NVIDIA GPU/TPU/NPU） | 3-5 |
-
----
-
-## 运维计划
-
-### 定期任务
-
-| 任务 | 频率 | 说明 |
-|------|------|------|
-| 上游变更巡检 | 每周 | 检查内核/API/框架是否有 breaking change |
-| 条目复评 | 每周 | 验证已有条目的时效性 |
-| 评审摘要报告 | 每周 | 向 Ling 汇报本周入库/更新/过期情况 |
-| 术语表维护 | 每月 | 检查术语一致性，补充新术语 |
-| 知识库健康度检查 | 每月 | 检查断链、孤立条目、缺失索引 |
-
-### 质量指标
-
-| 指标 | 目标 |
-|------|------|
-| 信源覆盖率 | 100% 条目有 P0/P1 信源 |
-| 评审通过率 | 首次评审通过率 > 80% |
-| 交叉引用完整率 | 100% 引用有效，0 断链 |
-| 版本时效性 | 100% 条目标注在 30 天内验证过 |
-
----
-
-## 版本历史
+## 6. 版本历史
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
-| 2026-04-11 | v1.0 | 初始计划，完成阶段一 |
+| 2026-04-11 | v1.0 | 初始计划 |
+| 2026-04-11 | v2.0 | 重构为持续运营计划：每日流水线 + 3子Agent + 评审机制 + 进度追踪 |
