@@ -14,7 +14,7 @@
 | Linux 驱动 | Agent-A | ⬜ 未开始 | — | 0 | 13 |
 | GPU/图显 | Agent-B | ⬜ 未开始 | — | 0 | — |
 | Android 图显 | Agent-C | ⬜ 未开始 | — | 0 | 10 |
-| AI | Agent-D | ⬜ 未开始 | — | 0 | — |
+| AI 图显 | Agent-D | ⬜ 未开始 | — | 0 | 10 |
 
 ### Agent-A 断点
 
@@ -46,14 +46,14 @@
 待完成: [surfaceflinger/architecture-overview, surfaceflinger/bufferqueue-flow, ...]
 ```
 
-### Agent-D 断点（AI）
+### Agent-D 断点（AI 图显）
 
 ```
 状态: ⬜ 未开始
 当前子模块: —
 当前条目: —
 已完成: []
-待完成: []
+待完成: [super-resolution/overview, super-resolution/dlss, super-resolution/fsr, ...]
 ```
 
 ### 今日评审汇总

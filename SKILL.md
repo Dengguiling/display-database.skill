@@ -26,9 +26,7 @@ description: >
 | GPU 架构 | `KB-GPU-ARCH/` | NVIDIA/AMD/Intel 架构, 显存, 计算单元 |
 | 图形 API | `KB-GFX-API/` | Vulkan, DX12, OpenGL |
 | Android 图显 | `KB-ANDROID-GFX/` | SurfaceFlinger, HWComposer, Gralloc, Display HAL |
-| AI LLM | `KB-AI-LLM/` | Transformer, 注意力机制, 模型架构 |
-| AI 基础设施 | `KB-AI-INFRA/` | 训练框架, 推理优化, AI 芯片 |
-| AI Agent | `KB-AI-AGENT/` | Agent 框架, 工具链 |
+| AI 图显 | `KB-AI-GFX/` | DLSS/FSR/XeSS/AISR, 帧生成, AI 降噪, 神经渲染, AI 编译 |
 
 ## 文件结构
 
@@ -107,7 +105,7 @@ display-database.skill/
 | P2 | 权威社区（LKML/LWN） | 4 |
 | P3 | 技术博客（仅补充） | 3 |
 
-### 评审 Checklist（8项）
+### 评审 Checklist（Phase 1 格式预检）
 
 1. 信源可追溯（每条 Sources 有具体路径/URL）
 2. 信源等级合理（P3 置信度 ≤ 3）
@@ -117,6 +115,12 @@ display-database.skill/
 6. 术语一致性（与 _GLOSSARY.md 一致）
 7. 信息密度合格（无空话/废话）
 8. 模板完整（所有必填章节不空）
+
+### 对抗式实测（Phase 2 核心评审）
+
+Phase 1 通过后，**提问 Agent** 基于新条目出题，**回答 Agent** 仅凭知识库作答：
+- 准确性 40% + 完整性 30% + 可检索性 20% + 关联性 10%
+- ≥ 85 分 PASS / 70-84 条件PASS / < 70 FAIL 打回重写
 
 ### Git 提交规范
 
