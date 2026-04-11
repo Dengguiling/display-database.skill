@@ -16,15 +16,15 @@
 ┌─────────────────────────────────┐
 │  总调度：读取 PLAN.md + _PROGRESS.md  │
 │  识别今日需要更新的知识方向            │
-│  生成 3 个方向的子任务               │
+│  生成 4 个方向的子任务               │
 └──────────┬──────────────────────┘
            │
      ┌─────┼─────┐
-     ▼     ▼     ▼
-  ┌─────┐┌─────┐┌─────┐
-  │ AI  ││ GPU ││Linux│  ← 3 个子 Agent 并行
-  │知识  ││图显  ││驱动  │
-  └──┬──┘└──┬──┘└──┬──┘
+     ▼     ▼     ▼     ▼
+  ┌─────┐┌─────┐┌─────┐┌─────┐
+  │ AI  ││ GPU ││Linux││Andr │  ← 4 个子 Agent 并行
+  │知识  ││图显  ││驱动  ││图显  │
+  └──┬──┘└──┬──┘└──┬──┘└──┬──┘
      │     │     │
      ▼     ▼     ▼
   抓取数据（P0/P1 优先）
@@ -72,12 +72,13 @@
 
 ## 2. 知识方向与优先级
 
-### 2.1 三大方向
+### 2.1 四大方向
 
 | 方向 | 模块 | 子模块 | 当前状态 |
 |------|------|--------|----------|
 | **Linux 驱动** | KB-LINUX-DRM | atomic, crtc, plane, connector, encoder, fb, property, gem, dma-buf | 🟡 建设中 |
 | **GPU/图显** | KB-LINUX-GPU-DRIVER, KB-GPU-ARCH, KB-GFX-API | driver-model, modeset, hw-specific, vulkan, dx12 | ⬜ 待启动 |
+| **Android 图显** | KB-ANDROID-GFX | surfaceflinger, hwcomposer, gralloc, vulkan-android, display-hal | ⬜ 待启动 |
 | **AI** | KB-AI-LLM, KB-AI-INFRA, KB-AI-AGENT | llm, training, inference, agent, chip | ⬜ 待启动 |
 
 ### 2.2 方向识别逻辑
@@ -139,7 +140,35 @@
 **当前子任务队列：**
 （待 Agent-A 完成后启动，队列待规划）
 
-### 3.3 Agent-C：AI 方向
+### 3.3 Agent-C：Android 图显方向
+
+**负责模块：** KB-ANDROID-GFX
+
+**信源清单：**
+| 信源 | 等级 | 覆盖范围 |
+|------|------|----------|
+| Android Source (cs.android.com) | P0 | SurfaceFlinger, HWComposer, Gralloc 源码 |
+| Android Developer Documentation | P0 | 官方 API 文档与架构指南 |
+| AOSP `frameworks/native/` | P0 | 图形栈核心实现 |
+| AOSP `hardware/interfaces/graphics/` | P1 | HAL 接口定义 |
+| Android GPU Inspector (AGI) 文档 | P2 | GPU 调试与分析工具 |
+| Chromium GPU 相关文档 | P2 | Android WebView 图形栈 |
+
+**当前子任务队列：**
+| # | 子模块 | 条目 | 状态 |
+|---|--------|------|------|
+| 1 | surfaceflinger | architecture-overview | ⬜ |
+| 2 | surfaceflinger | bufferqueue-flow | ⬜ |
+| 3 | surfaceflinger | vsync-model | ⬜ |
+| 4 | hwcomposer | hwc2-interface | ⬜ |
+| 5 | hwcomposer | composition-types | ⬜ |
+| 6 | gralloc | gralloc-allocator | ⬜ |
+| 7 | gralloc | buffer-usage | ⬜ |
+| 8 | vulkan-android | vulkan-on-android | ⬜ |
+| 9 | display-hal | display-hal-aidl | ⬜ |
+| 10 | display-hal | display-color | ⬜ |
+
+### 3.4 Agent-D：AI 方向
 
 **负责模块：** KB-AI-LLM, KB-AI-INFRA, KB-AI-AGENT
 
@@ -198,3 +227,4 @@
 |------|------|------|
 | 2026-04-11 | v1.0 | 初始计划 |
 | 2026-04-11 | v2.0 | 重构为持续运营计划：每日流水线 + 3子Agent + 评审机制 + 进度追踪 |
+| 2026-04-11 | v2.1 | 新增 Agent-C Android 图显方向（SurfaceFlinger/HWComposer/Gralloc/Display HAL） |
