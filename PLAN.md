@@ -228,3 +228,4 @@
 | 2026-04-11 | v1.0 | 初始计划 |
 | 2026-04-11 | v2.0 | 重构为持续运营计划：每日流水线 + 3子Agent + 评审机制 + 进度追踪 |
 | 2026-04-11 | v2.1 | 新增 Agent-C Android 图显方向（SurfaceFlinger/HWComposer/Gralloc/Display HAL） |
+| 2026-04-11 | v3.0 | 迁移为标准 Skill（display-database.skill），适配 Skill 架构 |
