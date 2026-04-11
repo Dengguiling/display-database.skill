@@ -26,3 +26,7 @@ DRM (Direct Rendering Manager) 是 Linux 内核的图形子系统核心框架，
 | atomic_check 和 atomic_commit 的区别？ | [→ atomic/commit-flow] |
 | 非阻塞提交和同步提交有什么不同？ | [→ atomic/commit-flow] |
 | hw_done / flip_done / cleanup_done 三个信号的含义？ | [→ atomic/commit-flow] |
+| drm_atomic_state 的生命周期是什么？ | [→ atomic/state-mgmt] |
+| swap_state 在 commit 流程中的位置和作用？ | [→ atomic/state-mgmt] |
+| drm_atomic_get_crtc_state 什么时候分配新状态？ | [→ atomic/state-mgmt] |
+| state_to_destroy 的 swap 前后语义变化？ | [→ atomic/state-mgmt] |

@@ -221,7 +221,20 @@
 | Mesa3D source & docs | P2 | 开源图形栈实现 |
 
 **当前子任务队列：**
-（待 Agent-A 完成后启动，队列待规划）
+| # | 子模块 | 条目 | 状态 |
+|---|--------|------|------|
+| 1 | gpu-pipeline | gpu-rendering-pipeline | ✅ |
+| 2 | gpu-pipeline | shader-core-arch | ⬜ |
+| 3 | gpu-pipeline | gpu-memory-hierarchy | ⬜ |
+| 4 | vulkan | vulkan-overview | ⬜ |
+| 5 | vulkan | vulkan-instance-device | ⬜ |
+| 6 | vulkan | vulkan-command-buffer | ⬜ |
+| 7 | vulkan | vulkan-pipeline | ⬜ |
+| 8 | vulkan | vulkan-memory | ⬜ |
+| 9 | dx12 | dx12-overview | ⬜ |
+| 10 | dx12 | dx12-command-queue | ⬜ |
+| 11 | dx12 | dx12-pipeline | ⬜ |
+| 12 | dx12 | dx12-resource-memory | ⬜ |
 
 ### 3.3 Agent-C：Android 图显方向
 
