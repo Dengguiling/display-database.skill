@@ -11,19 +11,19 @@
 
 | 方向 | Agent | 状态 | 当前子模块 | 已完成 | 待完成 |
 |------|-------|------|------------|--------|--------|
-| Linux 驱动 | Agent-A | 🔄 执行中 | atomic | 1 | 12 |
-| GPU/图显 | Agent-B | 🔄 执行中 | gpu-pipeline | 1 | 12 |
+| Linux 驱动 | Agent-A | 🔄 执行中 | atomic | 2 | 11 |
+| GPU/图显 | Agent-B | 🔄 执行中 | gpu-pipeline | 1 | 11 |
 | Android 图显 | Agent-C | 🔄 执行中 | surfaceflinger | 0 | 10 |
-| AI 图显 | Agent-D | 🔄 执行中 | super-resolution | 0 | 10 |
+| AI 图显 | Agent-D | 🔄 执行中 | super-resolution | 1 | 9 |
 
 ### Agent-A 断点
 
 ```
 状态: 🔄 执行中
 当前子模块: atomic
-当前条目: state-mgmt
-已完成: [commit-flow]
-待完成: [state-mgmt, helpers, nonblocking, crtc-state, vblank, plane-state, connector-state, encoder-state, framebuffer, drm-property, gem-objects, dma-buf-overview]
+当前条目: helpers
+已完成: [commit-flow ✅, state-mgmt ✅]
+待完成: [helpers, nonblocking, crtc-state, vblank, plane-state, connector-state, encoder-state, framebuffer, drm-property, gem-objects, dma-buf-overview]
 ```
 
 ### Agent-B 断点
@@ -51,19 +51,30 @@
 ```
 状态: 🔄 执行中
 当前子模块: super-resolution
-当前条目: overview
-已完成: []
-待完成: [overview, dlss, fsr, xess, aisr, dlss-frame-gen, afmf, rt-denoise, neural-radiance, shader-ai-compile]
+当前条目: dlss
+已完成: [overview ✅]
+待完成: [dlss, fsr, xess, aisr, dlss-frame-gen, afmf, rt-denoise, neural-radiance, shader-ai-compile]
 ```
 
 ### 今日评审汇总
 
 | 条目ID | 结果 | 重试次数 | 备注 |
 |--------|------|----------|------|
-| — | — | — | — |
+| KB-LINUX-DRM-atomic-001 (commit-flow) | PASS | 0 | Phase1 8/8 |
+| KB-LINUX-DRM-atomic-002 (state-mgmt) | PASS | 0 | 96分 |
+| KB-GPU-ARCH-gpu-pipeline-001 (gpu-rendering-pipeline) | PASS | 0 | Phase1 8/8 |
+| KB-AI-GFX-super-resolution-001 (overview) | PASS | 0 | Phase2 95分 |
 
 ---
 
 ## 历史归档
 
-_(每日任务完成后，当日进度移至此处)_
+### 2026-04-11（基建日 + 首次采集）
+
+| 方向 | 已入库 | 进行中 | 待执行 |
+|------|--------|--------|--------|
+| Linux DRM | 2 | 0 | 11 |
+| GPU/图显 | 1 | 0 | 11 |
+| Android 图显 | 0 | 0 | 10 |
+| AI 图显 | 1 | 0 | 9 |
+| **合计** | **4** | **0** | **41** |
