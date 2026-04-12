@@ -12,7 +12,7 @@
 | 方向 | Agent | 状态 | 当前子模块 | 已完成 | 待完成 |
 |------|-------|------|------------|--------|--------|
 | Linux 驱动 | Agent-A | ✅ 队列清空 | atomic | 13 | 0 |
-| GPU/图显 | Agent-B | 🔄 执行中 | vulkan | 4 | 8 |
+| GPU/图显 | Agent-B | 🔄 执行中 | vulkan | 5 | 7 |
 | Android 图显 | Agent-C | 🔄 执行中 | surfaceflinger | 0 | 10 |
 | AI 图显 | Agent-D | 🔄 执行中 | super-resolution | 1 | 9 |
 
@@ -32,9 +32,9 @@
 ```
 状态: 🔄 执行中
 当前子模块: vulkan
-当前条目: vulkan-instance-device
-已完成: [gpu-rendering-pipeline ✅, shader-core-arch ✅, gpu-memory-hierarchy ✅, vulkan-overview ✅]
-待完成: [vulkan-instance-device, vulkan-command-buffer, vulkan-pipeline, vulkan-memory, dx12-overview, dx12-command-queue, dx12-pipeline, dx12-resource-memory]
+当前条目: vulkan-command-buffer
+已完成: [gpu-rendering-pipeline ✅, shader-core-arch ✅, gpu-memory-hierarchy ✅, vulkan-overview ✅, vulkan-instance-device ✅]
+待完成: [vulkan-command-buffer, vulkan-pipeline, vulkan-memory, dx12-overview, dx12-command-queue, dx12-pipeline, dx12-resource-memory]
 ```
 
 ### Agent-C 断点（Android 图显）
@@ -78,6 +78,7 @@
 | KB-GPU-ARCH-gpu-pipeline-002 (shader-core-arch) | PASS | 0 | Phase2 95分 |
 | KB-GPU-ARCH-gpu-pipeline-003 (gpu-memory-hierarchy) | PASS | 0 | Phase2 96分 |
 | KB-GPU-ARCH-vulkan-001 (vulkan-overview) | PASS | 0 | Phase2 97分 |
+| KB-GPU-ARCH-vulkan-002 (vulkan-instance-device) | PASS | 0 | Phase2 98分 |
 | KB-AI-GFX-super-resolution-001 (overview) | PASS | 0 | Phase2 95分 |
 
 ---
