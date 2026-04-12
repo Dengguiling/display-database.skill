@@ -1,314 +1,289 @@
 # GPU Shader Core 架构
 
-> **条目ID:** KB-GPU-ARCH-gpu-pipeline-002
-> **模块:** KB-GPU-ARCH / gpu-pipeline
-> **置信度:** 5/5（基于 NVIDIA/AMD/Intel 官方架构文档 + 内核驱动源码 + 技术分析文章）
-> **时效性:** 2026-04-12 | **信源:** NVIDIA, AMD, Intel, kernel.org, abhik.ai
-> **关联:** [gpu-rendering-pipeline](./gpu-rendering-pipeline.md) | [gpu-memory-hierarchy](./gpu-memory-hierarchy.md)
+> 现代 GPU 的核心计算单元，实现 SIMT 执行模型，通过 Warp/Wavefront 调度器管理大规模并行线程。
 
----
+## Meta
+- **ID:** KB-GPU-ARCH-gpu-pipeline-002
+- **置信度:** 5
+- **信源等级:** P1
+- **验证日期:** 2026-04-13
+- **适用版本:** NVIDIA Ada Lovelace / Hopper, AMD RDNA 3 / CDNA 3, Intel Xe-HPG / Xe-HPC
+- **关键词:** shader core, SIMT, warp, wavefront, SM, CU, streaming multiprocessor, compute unit, register file, shared memory, occupancy, tensor core, RT core
+- **前置知识:** [→ gpu-rendering-pipeline]
+- **关联条目:** [→ gpu-memory-hierarchy]
 
-## 核心摘要
+## 概述
 
-GPU Shader Core 是现代 GPU 的核心计算单元——它实现了 SIMT（Single Instruction, Multiple Threads）执行模型，通过 Warp/Wavefront 调度器在大量并行线程间零成本切换，以隐藏内存延迟。三大 GPU 厂商各有不同的架构命名和实现策略：NVIDIA 的 Streaming Multiprocessor（SM）、AMD 的 Compute Unit（CU）、Intel 的 Xe Core（Xe-HPC）或 Execution Unit（Xe-LP）。理解 Shader Core 的内部结构（ALU 阵列、寄存器文件、共享内存、Warp 调度器）是 GPU 驱动开发和性能优化的基础。
+GPU Shader Core 是现代 GPU 的核心计算单元，实现了 SIMT（Single Instruction, Multiple Threads）执行模型。三大厂商各有命名：NVIDIA 称为 Streaming Multiprocessor（SM），AMD 称为 Compute Unit（CU），Intel 称为 Xe Core（Xe-HPC）或 Execution Unit（Xe-LP）。Shader Core 内部包含 ALU 阵列、寄存器文件、共享内存和 Warp/Wavefront 调度器，通过在大量并行线程间零成本切换来隐藏内存延迟。理解 Shader Core 架构是 GPU 驱动开发和性能优化的基础。
 
----
+## 架构/调用链
 
-## 1. SIMT 执行模型
+### SIMT 执行模型
 
-### 核心概念
+```
+应用程序线程 (Thread)
+    │
+    ▼
+工作组 (Workgroup / Thread Group)
+    │  CUDA: Block (最多 1024 线程)
+    │  Vulkan: Workgroup (gl_WorkGroupSize)
+    ▼
+线程束 (Warp / Wavefront / Subgroup)
+    │  NVIDIA: Warp = 32 线程
+    │  AMD: Wavefront = 64 线程
+    │  Vulkan: Subgroup (大小由设备决定)
+    ▼
+SIMD 执行单元
+    │  NVIDIA: 32-wide FP32 ALU
+    │  AMD: 32-wide SIMD32 (RDNA 3)
+    │  Intel: 16-wide SIMD16 (Xe-HPG)
+    ▼
+ALU 阵列 (per SM/CU/Xe Core)
+```
 
-| 概念 | 说明 |
-|------|------|
-| **SIMT** | 单指令多线程。一组线程（Warp/Wavefront）共享一个指令指针，执行相同指令但操作不同数据 |
-| **Warp** | NVIDIA 术语，32 线程一组 |
-| **Wavefront** | AMD 术语，64 线程一组（RDNA）或 64 线程（CDNA） |
-| **SIMD** | 单指令多数据。硬件执行单元，NVIDIA=32-wide, AMD=32-wide (SIMD32) |
-| **Subgroup** | Vulkan/SPIR-V 术语，与 Warp/Wavefront 对应 |
+### NVIDIA SM 内部架构 (Ada Lovelace)
+
+```
+┌─────────────────────────────────────────────────┐
+│              Streaming Multiprocessor (SM)       │
+│                                                  │
+│  ┌──────────────┐  ┌──────────────┐              │
+│  │ Warp Scheduler│  │ Dispatch Unit│  ×4 组       │
+│  └──────┬───────┘  └──────┬───────┘              │
+│         │                 │                       │
+│  ┌──────▼─────────────────▼──────┐               │
+│  │     128 FP32 CUDA Cores       │               │
+│  │     64 FP32/INT32 (dual-issue)│               │
+│  │     4 Tensor Cores            │               │
+│  │     1 RT Core                 │               │
+│  └──────────────┬────────────────┘               │
+│                 │                                 │
+│  ┌──────────────▼────────────────┐               │
+│  │     Register File (256 KB)    │               │
+│  │     65536 × 32-bit registers  │               │
+│  └──────────────┬────────────────┘               │
+│                 │                                 │
+│  ┌──────────────▼────────────────┐               │
+│  │     Shared Memory (100 KB)    │               │
+│  │     L1 Cache (128 KB)         │  可配置比例    │
+│  └───────────────────────────────┘               │
+└─────────────────────────────────────────────────┘
+```
+
+### AMD CU 内部架构 (RDNA 3)
+
+```
+┌─────────────────────────────────────────────────┐
+│              Compute Unit (CU)                   │
+│                                                  │
+│  ┌──────────────┐  ┌──────────────┐              │
+│  │ Wavefront    │  │ Wavefront    │  ×2 组       │
+│  │ Scheduler    │  │ Scheduler    │              │
+│  └──────┬───────┘  └──────┬───────┘              │
+│         │                 │                       │
+│  ┌──────▼─────────────────▼──────┐               │
+│  │     SIMD32 × 2 (64 ALU)       │               │
+│  │     1 AI Accelerator          │               │
+│  │     1 Ray Accelerator         │               │
+│  └──────────────┬────────────────┘               │
+│                 │                                 │
+│  ┌──────────────▼────────────────┐               │
+│  │     VGPRs (128 KB)            │               │
+│  │     SGPRs (6 KB)              │               │
+│  └──────────────┬────────────────┘               │
+│                 │                                 │
+│  ┌──────────────▼────────────────┐               │
+│  │     LDS (128 KB)              │               │
+│  │     L0 Cache (32 KB)          │               │
+│  └───────────────────────────────┘               │
+└─────────────────────────────────────────────────┘
+```
+
+### Intel Xe Core 内部架构 (Xe-HPG)
+
+```
+┌─────────────────────────────────────────────────┐
+│              Xe Core (Xe-HPG)                    │
+│                                                  │
+│  ┌──────────────────────────────────┐            │
+│  │     16 EU × SIMD16 = 256 ALU     │            │
+│  │     Thread Dispatch Unit         │            │
+│  └──────────────┬───────────────────┘            │
+│                 │                                 │
+│  ┌──────────────▼───────────────────┐            │
+│  │     Register File (per Thread)   │            │
+│  │     4096 × 32-bit registers      │            │
+│  └──────────────┬───────────────────┘            │
+│                 │                                 │
+│  ┌──────────────▼───────────────────┐            │
+│  │     Shared Local Memory (64 KB)  │            │
+│  │     L1 Cache (128 KB/Slice)      │            │
+│  └──────────────────────────────────┘            │
+└─────────────────────────────────────────────────┘
+```
+
+## 关键接口
+
+### 内核驱动接口
+
+#### NVIDIA (nouveau)
+- `nvkm_falcon_ctor()` — Falcon 微控制器初始化（管理 SM 固件加载）
+  - 源码: `drivers/gpu/drm/nouveau/nvkm/engine/falcon.c`
+  - 注意: Falcon 是 NVIDIA GPU 上的通用微控制器，负责管理 SM 的固件和调度
+
+- `nvkm_grctx_generate()` — 生成 GPU 上下文（SM 状态保存/恢复）
+  - 源码: `drivers/gpu/drm/nouveau/nvkm/engine/gr/ctx*.c`
+  - 注意: 上下文切换时需要保存/恢复 SM 的寄存器文件和调度器状态
+
+#### AMD (amdgpu)
+- `amdgpu_gfx_select_cu_sh_mask()` — CU/SH 屏蔽配置（控制哪些 CU 可用）
+  - 源码: `drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c` (RDNA 2/3)
+  - 注意: 用于 CU 级别的电源管理和故障隔离
+
+- `amdgpu_gfx_compute_queue_acquire()` — 计算队列获取（分配 CU 资源给计算任务）
+  - 源码: `drivers/gpu/drm/amd/amdgpu/amdgpu_gfx.c`
+  - 注意: 图形和计算任务共享 CU 资源，驱动负责仲裁
+
+#### Intel (xe/drm)
+- `xe_hw_engine_enable()` — 启用硬件引擎（EU 集群）
+  - 源码: `drivers/gpu/drm/xe/xe_hw_engine.c`
+  - 注意: Xe 驱动使用 hw_engine 抽象管理 EU 集群
+
+### 数据结构
+
+- `struct drm_sched_entity` — DRM 调度器实体（代表一个提交上下文）
+  - 关键字段:
+    - `rq` — 运行队列（关联到特定硬件队列）
+    - `priority` — 调度优先级
+  - 源码: `include/drm/gpu_scheduler.h`
+
+## 实现要点
 
 ### Warp Divergence（线程分歧）
+
+当 Warp 内的线程走不同分支时，硬件会序列化执行——先执行一个分支的线程（其他线程 masked off），再执行另一个分支。这是 GPU 性能损失的主要来源之一。
 
 ```
 Warp 32 线程执行 if-else:
 ┌─────────────────────────────────────────┐
 │ if (tid < 16) {    ← 16 线程执行       │
-│     do_A();        ← 16 线程空闲       │
-│ } else {           ← 16 线程空闲       │
-│     do_B();        ← 16 线程执行       │
-│ }                  ← 串行化！吞吐量减半 │
+│     result = a * b;                     │
+│ } else {             ← 16 线程执行       │
+│     result = c + d;                     │
+│ }                                        │
+│ 实际执行: 2 次序列化（而非 1 次并行）     │
 └─────────────────────────────────────────┘
 ```
 
-- 最坏情况：32-way divergence → 吞吐量降至 1/32
-- **优化策略：** 将分支条件按 warp 对齐，避免 warp 内分歧
-
----
-
-## 2. 三大厂商架构对比
-
-### 总览
-
-| 维度 | NVIDIA (Ada Lovelace) | AMD (RDNA 3) | Intel (Xe-HPG) |
-|------|----------------------|-------------|----------------|
-| 计算单元名 | SM (Streaming Multiprocessor) | CU (Compute Unit) | Xe Core |
-| 线程组 | Warp (32 threads) | Wavefront (64 threads) | Subgroup (variable) |
-| SIMD 宽度 | 32-wide × 4 组 = 128 FP32 | SIMD32 × 2 组 = 64 FP32 | SIMD16 × 8 组 = 128 FP32 |
-| FP32 CUDA/核心 | 128 per SM | 64 per CU | 256 per Xe Core (Battlemage) |
-| Tensor 单元 | Tensor Core (4×4×4) | Matrix Core (WMMA) | XMX (矩阵引擎) |
-| 光追单元 | RT Core (BVH + Ray-Tri) | Ray Accelerator | Ray Tracing Unit |
-| Warp 调度器 | 4 个 | 2 个 (Wave Scheduler) | Thread Dispatch |
-| 寄存器文件 | 256 KB (65,536 × 32-bit) | 128 KB (per CU) | 192 KB (per Xe Core) |
-| 共享内存 | 0-128 KB (可配置) | 32-128 KB (per CU) | 64-128 KB (per Xe Core) |
-| L1 Cache | 与共享内存共享 128 KB | 32 KB (独立) | 128 KB (独立) |
-| 最大驻留线程 | 1,536 | 1,024 (RDNA3) | ~1,024 |
-| 最大驻留 Warp | 48 | 32 | ~64 |
-
-### NVIDIA SM 架构详解
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    Streaming Multiprocessor          │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────┐│
-│  │Warp Sched│  │Warp Sched│  │Warp Sched│  │Warp ││
-│  │   #0     │  │   #1     │  │   #2     │  │Sched││
-│  │  + Disp  │  │  + Disp  │  │  + Disp  │  │ #3  ││
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──┬──┘│
-│       │              │              │           │   │
-│  ┌────▼──────────────▼──────────────▼───────────▼──┐│
-│  │              128 FP32 CUDA Cores                ││
-│  │  (4 × SIMD32, 每组 32 个 FP32 ALU)             ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │              4 Tensor Cores                     ││
-│  │  (4×4×4 FP16/BF16/TF32/INT8/INT4)              ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │              1 RT Core                          ││
-│  │  (BVH Traversal + Ray-Triangle Intersection)    ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │         Register File (256 KB)                  ││
-│  │         65,536 × 32-bit registers               ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Shared Memory / L1 Cache (128 KB)            ││
-│  │    (可配置比例: 0/16/32/64/100 KB shared)       ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Load/Store Units (32-bit address, 128-bit data)│
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Special Function Units (SFU)                 ││
-│  │    (sin, cos, rsqrt, exp, log)                 ││
-│  └─────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────┘
-```
-
-### AMD RDNA 3 CU 架构详解
-
-```
-┌─────────────────────────────────────────────────────┐
-│                  Compute Unit (CU)                   │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐                         │
-│  │ Wave     │  │ Wave     │                         │
-│  │ Scheduler│  │ Scheduler│                         │
-│  │   #0     │  │   #1     │                         │
-│  └────┬─────┘  └────┬─────┘                         │
-│       │              │                               │
-│  ┌────▼──────────────▼──────────────────────────────┐│
-│  │          SIMD32 × 2 = 64 FP32 Cores              ││
-│  │  (每组 SIMD32: 16 FP32 + 16 FP32, 共 64)        ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │          2 Matrix Cores (AI)                    ││
-│  │  (WMMA: FP16/BF16/INT8)                        ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │          Register File (128 KB)                 ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │          LDS (Local Data Share) 32-128 KB       ││
-│  │          (CU 内线程共享)                         ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │          L1 Data Cache (32 KB)                  ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │          SALU (Scalar ALU)                      ││
-│  │          (标量运算，wavefront 内广播)            ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │          Ray Accelerator                        ││
-│  └─────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────┘
-```
-
-### Intel Xe-HPG Xe Core 架构详解
-
-```
-┌─────────────────────────────────────────────────────┐
-│                     Xe Core                         │
-│                                                     │
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Thread Dispatch + Instruction Cache          ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    8 × SIMD16 = 128 FP32 EUs                   ││
-│  │    (每个 EU: 2 FPU pipelines + 1 INT pipeline)  ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    XMX Matrix Engines (8 个)                    ││
-│  │    (INT8/FP16/BF16 矩阵乘加)                   ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Register File (192 KB)                       ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Shared Local Memory (64-128 KB)              ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    L1 Cache (128 KB) + Data Port                ││
-│  └─────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────┐│
-│  │    Ray Tracing Unit                             ││
-│  └─────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## 3. Warp 调度与延迟隐藏
-
-### 零成本上下文切换
-
-```
-时钟周期:  0    1    2    3    4    5    6    7    8    9
-Warp 0:   [ALU][ALU][MEM──── 等待 ────][ALU][ALU]
-Warp 1:        [ALU][ALU][ALU][ALU][ALU][ALU][ALU][ALU]
-Warp 2:             [ALU][ALU][ALU][ALU][ALU][ALU][ALU]
-                    ↑ Warp 0 等待内存时，调度器切换到 Warp 1
-```
-
-- 所有线程状态存储在寄存器文件中，无需保存/恢复
-- 调度器每周期选择一个就绪的 Warp 发射指令
-- **关键：** 足够多的活跃 Warp 才能充分隐藏内存延迟
-
 ### Occupancy（占用率）
 
-| 资源限制 | 说明 | 影响 |
-|----------|------|------|
-| 寄存器/线程 | 每线程 0-255 寄存器，SM 总共 65,536 | 寄存器越多，并发线程越少 |
-| 共享内存/Block | SM 共享内存有限 | 共享内存越多，并发 Block 越少 |
-| 线程/Block | Block 大小上限 1,024 | Block 太小浪费调度槽 |
-| 最大 Warp 数 | 48 Warp/SM (NVIDIA) | 硬件上限 |
+Occupancy 是衡量 SM/CU 资源利用率的指标，受三个因素制约：
 
-**经验法则：**
-- 内存密集型：目标 Occupancy 50-75%（需要更多 Warp 隐藏延迟）
-- 计算密集型：目标 Occupancy 25-50%（足够 ALU 利用率即可）
+| 限制因素 | 说明 | 典型值 |
+|----------|------|--------|
+| **寄存器** | 每个 SM 的寄存器总量固定，每个线程占用越多，可并发 Warp 越少 | 256 KB/SM (NVIDIA) |
+| **共享内存** | Block 请求的共享内存越多，可并发 Block 越少 | 100 KB/SM (NVIDIA) |
+| **线程数** | 每个 SM 最大并发线程数有上限 | 1536-2048 线程/SM |
 
----
-
-## 4. 专用单元
-
-### Tensor Core / Matrix Core / XMX
-
-| 厂商 | 名称 | 操作 | 吞吐量（相对 FP32） |
-|------|------|------|---------------------|
-| NVIDIA | Tensor Core | D = A×B + C (4×4×4) | ~8× FP32 |
-| AMD | Matrix Core | WMMA (16×16×16) | ~4× FP32 |
-| Intel | XMX | D = A×B + C (8×8×8) | ~8× FP32 |
-
-**支持精度：** FP16, BF16, TF32, INT8, INT4, FP8 (Hopper+)
-
-### RT Core / Ray Accelerator
-
-| 厂商 | 名称 | 功能 |
-|------|------|------|
-| NVIDIA | RT Core | BVH 遍历 + 射线-三角形求交 |
-| AMD | Ray Accelerator | BVH 遍历 + 射线-盒子/三角形求交 |
-| Intel | RT Unit | BVH 遍历 + 射线求交 |
-
-**性能提升：** 相比纯软件实现，硬件光追加速约 10×。
-
----
-
-## 5. 内存层次（Shader Core 视角）
-
-| 层级 | 大小 | 延迟 | 作用域 | 用途 |
-|------|------|------|--------|------|
-| 寄存器 | 256 KB/SM | 0 周期 | 线程私有 | 局部变量、中间结果 |
-| 共享内存 | 0-128 KB/SM | ~20 周期 | Block 内共享 | 线程间通信、数据复用 |
-| L1 Cache | 128 KB/SM | ~30 周期 | SM 内 | 缓存全局内存访问 |
-| L2 Cache | 40-60 MB/GPU | ~200 周期 | GPU 全局 | 跨 SM 数据共享 |
-| 全局内存 (HBM) | 24-80 GB | ~500 周期 | GPU 全局 | 主数据存储 |
-
-**关键洞察：** 寄存器到全局内存的延迟差距达 500 周期。共享内存的存在就是为了弥补这个差距——让 Block 内线程协作加载全局内存数据到快速 scratchpad，然后多次复用。
-
----
-
-## 6. Coalesced Memory Access（合并内存访问）
-
+Occupancy 计算公式（NVIDIA）：
 ```
-良好合并（单次事务）:
-Warp 线程: 0  1  2  3  4  5  6  7  ...  31
-访问地址: 0  4  8  12 16 20 24 28 ...  124
-          └────────── 128 字节连续 ──────────┘
-
-不良合并（32 次事务）:
-Warp 线程: 0  1  2  3  4  5  6  7  ...  31
-访问地址: 0  1M 2M 3M 4M 5M 6M 7M ...  31M
-          └────── 完全分散，带宽浪费 ──────┘
+Occupancy = min(活跃 Warp 数 / 最大 Warp 数, 1.0)
+最大 Warp 数 = SM 寄存器总量 / (每线程寄存器数 × Warp 大小)
 ```
 
-- 32 线程访问 32 个连续 4 字节地址 → 合并为单次 128 字节事务
-- 分散访问可能导致有效带宽降低 10× 以上
-- **优化：** 数据布局按 warp 访问模式对齐（AoS → SoA 转换）
+### Tensor Core（张量核心）
 
----
+| 代际 | 架构 | 矩阵运算 | 精度支持 | 应用 |
+|------|------|----------|----------|------|
+| Gen 3 | Ampere (A100) | 16×16×16 | FP16/BF16/TF32/INT8/INT4 | AI 训练/推理 |
+| Gen 4 | Hopper (H100) | FP8/FP16/BF16/TF32/INT8 | FP8 新增 | 大模型训练 |
+| Gen 4 | Ada (RTX 4090) | FP16/BF16/TF32/INT8 | 无 FP8 | 游戏/创作 |
+| Gen 5 | Blackwell (B200) | FP4/FP6/FP8/FP16/BF16 | FP4/FP6 新增 | 下一代训练 |
 
-## 7. 驱动开发视角
+### RT Core（光线追踪核心）
 
-### 内核驱动中的 Shader Core 管理
+| 代际 | 架构 | 功能 | 性能 |
+|------|------|------|------|
+| Gen 1 | Turing (RTX 20) | BVH 遍历 + 光线-三角形相交 | ~10 Giga-rays/s |
+| Gen 2 | Ampere (RTX 30) | 运动模糊 + 透明度 | ~19 Giga-rays/s |
+| Gen 3 | Ada (RTX 40) | SER (Shader Execution Reordering) | ~78 Giga-rays/s |
+| Gen 4 | Blackwell (RTX 50) | 增强压缩 + 更快遍历 | ~100+ Giga-rays/s |
+
+## 版本差异
+
+| 架构 | 代际 | SM/CU 变更 |
+|------|------|------------|
+| NVIDIA Maxwell | GM200 | 无 Tensor/RT Core，纯 FP32 CUDA Core |
+| NVIDIA Pascal | GP100 | 引入 FP16 (2:1 rate) |
+| NVIDIA Volta | GV100 | 首次引入 Tensor Core (Gen 1) |
+| NVIDIA Turing | TU102 | 首次引入 RT Core (Gen 1) |
+| NVIDIA Ampere | GA100 | Tensor Core Gen 3，稀疏化支持 |
+| NVIDIA Ada | AD102 | Tensor Core Gen 4，SER 光追重排序 |
+| NVIDIA Hopper | GH100 | Tensor Core Gen 4，FP8，Transformer Engine |
+| NVIDIA Blackwell | GB200 | Tensor Core Gen 5，FP4/FP6，第二代 Transformer Engine |
+| AMD GCN | Vega | 无 AI 加速器，纯 ALU |
+| AMD RDNA 2 | Navi 21 | 引入 Ray Accelerator |
+| AMD RDNA 3 | Navi 31 | 引入 AI Accelerator，Chiplet 设计 |
+| Intel Xe-LP | Tiger Lake | 96 EU，无 AI 加速 |
+| Intel Xe-HPG | Alchemist | 256 EU，Ray Tracing Unit |
+| Intel Xe-HPC | Ponte Vecchio | 4096 EU，矩阵扩展引擎 |
+
+## 陷阱与注意事项
+
+- **寄存器溢出（Register Spilling）：** 当 shader 使用的寄存器超过 SM 可分配量时，编译器会将溢出寄存器存储到本地内存（实际映射到 L1/L2 缓存），导致显著性能下降。CUDA 中可通过 `__launch_bounds__` 提示编译器优化寄存器分配。
+- **Bank Conflict：** 共享内存被分为 32 个 bank（NVIDIA），同一 Warp 内的线程访问同一 bank 的不同地址时会发生序列化。通过 padding 或重排访问模式可避免。
+- **Warp Divergence 不可消除：** 编译器无法完全消除 divergence（如循环边界不整齐时），应从算法层面减少分支。
+- **Occupancy 不是越高越好：** 过高 occupancy 可能导致 L1/共享内存容量不足，反而降低性能。需要通过 profiling 工具（Nsight Compute、ROCm Profiler）找到最优 occupancy。
+- **AMD Wavefront 64 线程：** AMD 的 Wavefront 是 64 线程（NVIDIA 是 32），这意味着同样的 divergence 在 AMD 上可能影响更多线程。RDNA 3 引入了 Wave32 模式可缓解此问题。
+
+## 使用模式
+
+### CUDA: 控制 Occupancy
 
 ```c
-// NVIDIA (nouveau) — SM 时钟控制
-nvkm_therm_clkgate_init(device, &sm_clk);
+// 通过 __launch_bounds__ 提示编译器
+__global__ __launch_bounds__(256, 4)  // 每块 256 线程，最少 4 块并发
+void matmul_kernel(float* C, const float* A, const float* B, int N) {
+    // kernel 实现...
+}
 
-// AMD (amdgpu) — CU 仲裁配置
+// 运行时查询 occupancy
+int blockSize = 256;
+int minGridSize, gridSize;
+cudaOccupancyMaxPotentialBlockSize(&minGridSize, &gridSize,
+                                    matmul_kernel, 0, 0);
+```
+
+### Vulkan: 查询 Subgroup 信息
+
+```c
+// 查询 subgroup 大小（对应 Warp/Wavefront 大小）
+VkPhysicalDeviceSubgroupProperties subgroupProps = {
+    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES,
+};
+vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+
+// subgroupProps.subgroupSize = 32 (NVIDIA) 或 64 (AMD)
+// 在 shader 中使用:
+// gl_SubgroupSize, gl_SubgroupID, gl_SubgroupInvocationID
+```
+
+### 驱动: CU 资源仲裁 (AMD)
+
+```c
+// amdgpu 驱动中配置 CU 屏蔽（用于电源管理或故障隔离）
 amdgpu_gfx_select_cu_sh_mask(adev, cu_mask, se_mask);
-
-// Intel (i915/xe) — EU 配置
-xe_hw_engine_enable(eu);
+// cu_mask: 位掩码，每个 bit 代表一个 CU
+// se_mask: Shader Engine 掩码
 ```
 
-### Compute Shader 调度
+## Sources
 
-```c
-// 驱动将 compute dispatch 映射到硬件
-// 1. 计算所需的 SM/CU 数量
-// 2. 分配寄存器和共享内存
-// 3. 设置 Warp/Wavefront 调度参数
-// 4. 发射 kernel
-```
-
----
-
-## 潜在影响
-
-- **AI 训练/推理：** Tensor Core 的利用率直接决定了大模型训练的性价比。理解 SM 资源分配（寄存器/共享内存/occupancy）是编写高效 CUDA kernel 的基础。
-- **光追游戏：** RT Core 的 BVH 遍历效率决定了光追游戏的帧率。驱动需要高效管理 SM 在光追和光栅化之间的资源分配。
-- **驱动优化：** GPU 驱动的 shader 编译器（NVIDIA PTX、AMD GCN/RDNA ISA、Intel SIMD ISA）需要理解硬件资源限制，生成最优的寄存器分配和指令调度。
-- **演进方向：** NVIDIA Blackwell 引入了 Transformer Engine（动态精度），AMD RDNA 4 预计增强 AI 能力，Intel Battlemage 已量产。三大厂商都在 Shader Core 中增加 AI 专用硬件。
-
----
-
-## 信源
-
-- [GPU Streaming Multiprocessor (SM) — abhik.ai](https://www.abhik.ai/concepts/gpu/shared-multiprocessor)
-- [NVIDIA Ada Lovelace Architecture Whitepaper](https://www.nvidia.com/en-us/geforce/technologies/ada-lovelace-architecture/)
-- [AMD RDNA 3 Architecture — GPUOpen](https://gpuopen.com/learn/rdna-3-architecture/)
-- [Intel Xe-HPG Microarchitecture — wikichip](https://en.wikichip.org/wiki/intel/microarchitectures/xe_hpg)
-- [drm/nouveau — Linux v6.13](https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/nouveau)
-- [drm/amd — Linux v6.13](https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/amd)
+- [P1] https://www.nvidia.com/en-us/geforce/technologies/ada-lovelace-architecture/ — NVIDIA Ada Lovelace Architecture Whitepaper: SM 结构、Tensor Core Gen 4、RT Core Gen 3
+- [P1] https://gpuopen.com/learn/rdna-3-architecture/ — AMD RDNA 3 Architecture (GPUOpen): CU 结构、Wavefront 调度、AI Accelerator
+- [P1] https://en.wikichip.org/wiki/intel/microarchitectures/xe_hpg — Intel Xe-HPG Microarchitecture (WikiChip): EU 阵列、线程调度
+- [P1] https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#streaming-multiprocessors — CUDA C++ Programming Guide §Streaming Multiprocessors: SM 资源限制、Occupancy 计算
+- [P0] https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/nouveau — drm/nouveau: Falcon 微控制器、SM 上下文管理
+- [P0] https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/amd — drm/amd: CU 屏蔽配置、计算队列管理
+- [P0] https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/xe — drm/xe: Xe 硬件引擎管理
+- [P0] include/drm/gpu_scheduler.h — DRM GPU Scheduler: 调度实体和运行队列定义
