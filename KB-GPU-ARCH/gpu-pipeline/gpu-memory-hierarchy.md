@@ -1,233 +1,314 @@
 # GPU 内存层次结构
 
-> **条目ID:** KB-GPU-ARCH-gpu-pipeline-003
-> **模块:** KB-GPU-ARCH / gpu-pipeline
-> **置信度:** 5/5（基于 NVIDIA/AMD/Intel 官方架构文档 + 内核驱动源码 + 技术分析文章）
-> **时效性:** 2026-04-12 | **信源:** NVIDIA, AMD, Intel, kernel.org, abhik.ai
-> **关联:** [shader-core-arch](./shader-core-arch.md) | [gpu-rendering-pipeline](./gpu-rendering-pipeline.md)
+> GPU 从片上寄存器到片外显存的五级内存层次，延迟差距超三个数量级，是性能优化的核心瓶颈。
 
----
+## Meta
+- **ID:** KB-GPU-ARCH-gpu-pipeline-003
+- **置信度:** 5
+- **信源等级:** P1
+- **验证日期:** 2026-04-13
+- **适用版本:** NVIDIA Hopper/Ada, AMD RDNA 3, Intel Xe-HPG, Linux TTM (v6.13)
+- **关键词:** GPU memory hierarchy, register file, shared memory, L1 cache, L2 cache, VRAM, HBM, GDDR, TTM, memory coalescing, bank conflict, tiling, page migration
+- **前置知识:** [→ gpu-rendering-pipeline] [→ shader-core-arch]
+- **关联条目:** [→ shader-core-arch]
 
-## 核心摘要
+## 概述
 
-GPU 内存层次结构是决定 GPU 性能的关键因素——从最快的片上寄存器（~0 cycle, ~8 TB/s）到最慢的片外显存（~400-600 cycle, 1-2 TB/s），延迟差距超过三个数量级。现代 GPU 采用多级缓存 + HBM/GDDR 高带宽显存 + TTM 内存管理器的组合架构。理解内存层次对于 GPU 驱动开发（显存分配策略、页面驱逐、DMA 映射）和性能优化（coalescing、bank conflict、tiling）至关重要。
+GPU 内存层次结构从最快的片上寄存器（~0 cycle, ~8 TB/s）到最慢的片外显存（~400-600 cycle, 1-2 TB/s），延迟差距超过三个数量级。现代 GPU 采用多级缓存 + HBM/GDDR 高带宽显存 + TTM 内存管理器的组合架构。理解内存层次对于 GPU 驱动开发（显存分配策略、页面驱逐、DMA 映射）和性能优化（coalescing、bank conflict、tiling）至关重要。
 
----
+## 架构/调用链
 
-## 1. 内存层次总览
-
-### 五级层次结构
-
-| 层级 | 位置 | 大小 | 延迟 | 带宽 | 作用域 |
-|------|------|------|------|------|--------|
-| **寄存器** | 片上，per-thread | 256 KB/SM | ~0 cycle | ~8 TB/s | 线程私有 |
-| **共享内存** | 片上，per-SM | 48-228 KB/SM | ~20-30 cycle | ~4 TB/s | Block 内共享 |
-| **L1 Cache** | 片上，per-SM | 128 KB/SM | ~30-40 cycle | ~4 TB/s | SM 内缓存 |
-| **L2 Cache** | 片上，GPU 全局 | 40-60 MB | ~200 cycle | ~2-3 TB/s | GPU 全局缓存 |
-| **显存 (VRAM)** | 片外 | 24-80 GB | ~400-600 cycle | 1-2 TB/s | GPU 全局 |
-
-### 延迟对比
+### 五级内存层次
 
 ```
-延迟 (cycles, log scale)
-│
-│ 600 ┤                                          ████ VRAM
-│     │                                     ████
-│ 400 ┤                                ████
-│     │                           ████
-│ 200 ┤                      ████ L2
-│     │                 ████
-│  40 ┤            ████ L1
-│     │       ████
-│  30 ┤  ████ Shared Mem
-│     │
-│   0 ┤███ Registers
-│     └──────────────────────────────────────────
-       Reg  Shared  L1    L2    VRAM
+线程 (Thread)
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    GPU 内存层次结构                            │
+│                                                              │
+│  Level 0: 寄存器 (Register File)                              │
+│  ├── 位置: 片上, per-thread                                   │
+│  ├── 大小: 256 KB/SM (NVIDIA), 128 KB/CU (AMD)               │
+│  ├── 延迟: ~0 cycle                                           │
+│  ├── 带宽: ~8 TB/s                                            │
+│  └── 作用域: 线程私有                                          │
+│         │                                                    │
+│         ▼                                                    │
+│  Level 1: 共享内存 / L1 Cache (Shared Memory / L1)            │
+│  ├── 位置: 片上, per-SM/CU                                    │
+│  ├── 大小: 48-228 KB/SM (可配置)                               │
+│  ├── 延迟: ~20-30 cycle                                       │
+│  ├── 带宽: ~4 TB/s                                            │
+│  └── 作用域: Block/Workgroup 内共享                            │
+│         │                                                    │
+│         ▼                                                    │
+│  Level 2: L2 Cache                                           │
+│  ├── 位置: 片上, GPU 全局                                     │
+│  ├── 大小: 40-60 MB                                           │
+│  ├── 延迟: ~200 cycle                                         │
+│  ├── 带宽: ~2-3 TB/s                                          │
+│  └── 作用域: GPU 全局缓存                                      │
+│         │                                                    │
+│         ▼                                                    │
+│  Level 3: 显存 (VRAM)                                        │
+│  ├── 位置: 片外 (HBM/GDDR)                                    │
+│  ├── 大小: 16-80 GB                                           │
+│  ├── 延迟: ~400-600 cycle                                     │
+│  ├── 带宽: 0.5-3.35 TB/s                                      │
+│  └── 作用域: GPU 全局                                          │
+│         │                                                    │
+│         ▼                                                    │
+│  Level 4: 系统内存 (System RAM, via PCIe/CXL)                 │
+│  ├── 位置: 主板                                               │
+│  ├── 大小: 64-512 GB                                          │
+│  ├── 延迟: ~1000+ cycle                                       │
+│  ├── 带宽: ~32-64 GB/s (PCIe 5.0 x16)                        │
+│  └── 作用域: CPU-GPU 共享                                      │
+└──────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 2. 显存类型对比
-
-### GDDR vs HBM
-
-| 维度 | GDDR6X | GDDR7 | HBM3 | HBM3E |
-|------|--------|-------|------|-------|
-| **接口宽度** | 32-bit/ch | 32-bit/ch | 1024-bit/stack | 1024-bit/stack |
-| **数据速率** | 21 Gbps | 32 Gbps | 6.4 Gbps/pin | 9.2 Gbps/pin |
-| **单芯片带宽** | 84 GB/s | 128 GB/s | 819 GB/s/stack | 1.2 TB/s/stack |
-| **容量** | 1-2 GB/chip | 2-4 GB/chip | 8-16 GB/stack | 8-16 GB/stack |
-| **功耗** | 中 | 中 | 低 | 低 |
-| **封装** | 独立芯片 | 独立芯片 | 2.5D SiP | 2.5D SiP |
-| **代表产品** | RTX 4090 | RTX 5090 | H100 | B200 |
-| **适用场景** | 消费级 GPU | 消费级 GPU | 数据中心 | 数据中心 |
-
-### 关键差异
-
-- **GDDR：** 高引脚速率，窄接口，适合 PCB 布局，成本较低
-- **HBM：** 宽接口，低引脚速率，需要 2.5D 封装（硅中介层），成本高但带宽密度极大
-- **LPDDR：** 移动 GPU 使用，低功耗优先
-
----
-
-## 3. 各级内存详解
-
-### 3.1 寄存器
-
-- **分配：** 编译器自动分配，每个线程最多 255 个 32-bit 寄存器
-- **溢出 (Spill)：** 寄存器不足时溢出到 Local Memory（实际在 L2/VRAM），性能大幅下降
-- **Occupancy 影响：** 每线程寄存器越多，可同时运行的 Warp 越少
-
-### 3.2 共享内存
-
-- **用途：** Block 内线程间数据共享，手动管理
-- **Bank Conflict：** 32 个 Bank，每个 4 字节宽。多线程访问同一 Bank 的不同地址会产生串行化
-- **优化：** 添加 padding（如 `shared float tile[32][33]`）避免 bank conflict
-- **L1/Shared 配置：** 可通过 `cudaFuncSetCacheConfig()` 调整比例
-
-### 3.3 L1 Cache
-
-- **与共享内存共享物理存储**（NVIDIA Ada/Hopper）
-- **缓存全局内存和局部内存访问**
-- **不可编程：** 硬件自动管理
-
-### 3.4 L2 Cache
-
-- **GPU 全局共享**，所有 SM 的内存请求都经过 L2
-- **持久化：** 跨 kernel launch 保持数据
-- **原子操作：** 支持缓存行级别的原子操作
-- **流式优化：** `cudaStreamAttrValue` 可设置 L2 persisting 访问窗口
-
-### 3.5 显存 (VRAM)
-
-- **HBM：** 通过硅中介层与 GPU die 邻接，超宽接口提供极高带宽
-- **GDDR：** 通过 PCB 走线连接，单通道带宽较低但通道数多
-- **ECC：** 数据中心 GPU 支持，占用 ~6.25% 显存容量
-
----
-
-## 4. 内存访问模式
-
-### Coalescing（合并访问）
-
-| 模式 | 效率 | 事务数 | 说明 |
-|------|------|--------|------|
-| **Coalesced** | 100% | 1 | 连续线程访问连续地址 |
-| **Misaligned** | 80-100% | 1-2 | 跨缓存行边界 |
-| **Strided (2x)** | 50% | 2 | 步长为 2 |
-| **Strided (32x)** | 3% | 32 | 步长为 32（最差） |
-| **Random** | 3-10% | 32 | 随机访问 |
-
-### Bank Conflict
+### Linux 内核 GPU 内存管理调用链
 
 ```
-32 Banks, 每个 4 字节宽
-Thread 0 → Bank 0, offset 0
-Thread 1 → Bank 1, offset 0
-...
-Thread 31 → Bank 31, offset 0  ← 无冲突
-
-// 冲突示例
-Thread 0 → Bank 0, offset 0
-Thread 1 → Bank 0, offset 1  ← 2-way conflict
-Thread 2 → Bank 0, offset 2  ← 3-way conflict
-...
+用户空间 (Vulkan/DX12 应用)
+    │
+    ▼ vkAllocateMemory / CreateCommittedResource
+用户空间驱动 (Mesa RADV / NVIDIA UMD)
+    │
+    ▼ DRM_IOCTL (gem_create / ttm_alloc)
+内核 DRM 子系统
+    │
+    ├── TTM (Translation Table Manager)
+    │   ├── ttm_bo_create() — 创建 Buffer Object
+    │   ├── ttm_bo_validate() — 验证/迁移 BO 到目标 placement
+    │   ├── ttm_tt_populate() — 填充页表（DMA 映射）
+    │   └── ttm_bo_evict() — 驱逐 BO（显存不足时）
+    │
+    ├── DMA-BUF (跨设备共享)
+    │   ├── dma_buf_export() — 导出 DMA-BUF
+    │   ├── dma_buf_attach() — 附加到另一设备
+    │   └── dma_buf_map_attachment() — 映射到设备地址空间
+    │
+    └── 页面迁移 (Page Migration)
+        ├── migrate_vma_setup() — 设置迁移范围
+        └── migrate_vma_pages() — 执行页面迁移
 ```
 
----
+## 关键接口
 
-## 5. TTM 内存管理器
+### 内核 TTM 接口
 
-### TTM (Translation Table Manager)
+- `ttm_bo_create()` — 创建 Buffer Object（GPU 内存分配的核心入口）
+  - 参数: `struct ttm_device *bdev`, `size_t size`, `enum ttm_bo_type type`, `struct ttm_placement *placement`, `struct ttm_buffer_object **p_bo`
+  - 返回: 0 成功, 负数错误码
+  - 源码: `drivers/gpu/drm/ttm/ttm_bo.c`
+  - 注意: 分配后 BO 处于 evicted 状态，需调用 ttm_bo_validate() 激活
 
-Linux 内核的 GPU 显存管理框架，被 amdgpu、nouveau、vmwgfx 等驱动使用：
+- `ttm_bo_validate()` — 验证 BO 的 placement 并触发迁移
+  - 参数: `struct ttm_buffer_object *bo`, `struct ttm_placement *placement`, `struct ttm_operation_ctx *ctx`
+  - 返回: 0 成功, -ENOMEM 显存不足
+  - 源码: `drivers/gpu/drm/ttm/ttm_bo.c`
+  - 注意: 若目标 placement 无可用空间，会触发 BO 驱逐链
 
-| Placement | 说明 | 驱逐策略 |
-|-----------|------|----------|
-| `TTM_PL_VRAM` | 显存（最快） | 可驱逐到 GTT |
-| `TTM_PL_TT` | GTT（Graphics Translation Table） | 可驱逐到 System RAM |
-| `TTM_PL_SYSTEM` | 系统内存（最慢） | 可 swap |
+- `ttm_bo_evict()` — 驱逐 BO（从显存移到系统内存）
+  - 源码: `drivers/gpu/drm/ttm/ttm_bo.c`
+  - 注意: 驱逐策略由 TTM 的 LRU 队列控制，最近最少使用的 BO 优先驱逐
 
-### TTM 工作流程
+### DMA-BUF 接口
+
+- `dma_buf_export()` — 将 BO 导出为 DMA-BUF fd
+  - 源码: `drivers/dma-buf/dma-buf.c`
+  - 注意: 导出后其他设备（如显示控制器、视频解码器）可通过 fd 共享 GPU 内存
+
+### 数据结构
+
+- `struct ttm_buffer_object` — TTM Buffer Object（GPU 内存的内核抽象）
+  - 关键字段:
+    - `mem` — 当前 placement（显存/系统内存/不可移动）
+    - `size` — 字节大小
+    - `priority` — 驱逐优先级
+    - `resource` — `struct drm_gem_object` (GEM 兼容层)
+  - 源码: `include/drm/ttm/ttm_bo_api.h`
+
+- `struct ttm_resource_manager` — TTM 内存区域管理器
+  - 关键字段:
+    - `use_type` — 内存类型（VRAM/TT/GTT）
+    - `size` — 区域总大小
+    - `lru` — LRU 驱逐队列
+  - 源码: `include/drm/ttm/ttm_resource.h`
+
+## 实现要点
+
+### 显存类型对比
+
+| 类型 | 带宽 | 容量 | 功耗 | 代表产品 | 适用场景 |
+|------|------|------|------|----------|----------|
+| **HBM3e** | 3.35-4.8 TB/s | 64-192 GB | 高 | H100/B200 | AI 训练/推理 |
+| **HBM3** | 2-3.35 TB/s | 32-80 GB | 高 | H100, MI300X | AI 训练 |
+| **GDDR7** | ~1.8 TB/s | 16-32 GB | 中 | RTX 5090 | 游戏/创作 |
+| **GDDR6X** | ~1 TB/s | 12-24 GB | 中 | RTX 4090 | 游戏 |
+| **GDDR6** | 0.5-0.72 TB/s | 8-16 GB | 中低 | RX 7900 XTX | 主流游戏 |
+| **LPDDR5X** | 0.1-0.2 TB/s | 8-16 GB | 低 | 集成显卡 | 移动端 |
+
+### TTM 内存驱逐策略
+
+TTM 使用 LRU（Least Recently Used）策略管理显存。当显存不足时：
 
 ```
-1. 应用请求 VRAM 中的 buffer
-2. TTM 检查 VRAM 是否有空间
-3. 若无空间，驱逐 LRU buffer 到 GTT
-4. 若 GTT 也满，驱逐到 System RAM
-5. 分配 VRAM 空间
-6. 迁移 buffer 到 VRAM
-7. 更新页表映射
+新 BO 请求分配显存
+    │
+    ▼
+显存空间不足?
+    │
+    ├── 是 → 从 LRU tail 开始驱逐
+    │       ├── BO 可驱逐? → 迁移到系统内存 (TTM_PL_FLAG_TT)
+    │       ├── BO 被锁定? → 跳过
+    │       └── BO 正在使用? → 跳过
+    │       │
+    │       ▼
+    │   释放足够空间? → 分配成功
+    │                  → 仍不足 → 返回 -ENOMEM
+    │
+    └── 否 → 直接分配
 ```
 
-### 内核驱动接口
+### 内存合并 (Coalescing)
+
+GPU 内存控制器将连续线程的内存访问合并为单次事务，大幅提升带宽利用率：
+
+```
+未合并 (最差情况):
+Thread 0: 读 addr 0  ─┐
+Thread 1: 读 addr 128 ─┤ 4 次独立事务
+Thread 2: 读 addr 256 ─┤ 带宽利用率 ~25%
+Thread 3: 读 addr 384 ─┘
+
+合并 (最佳情况):
+Thread 0: 读 addr 0  ─┐
+Thread 1: 读 addr 4  ─┤ 1 次事务 (128-byte cache line)
+Thread 2: 读 addr 8  ─┤ 带宽利用率 ~100%
+Thread 3: 读 addr 12 ─┘
+```
+
+### Texture Tiling（纹理分块）
+
+GPU 将纹理数据按 tile（而非行优先）存储，以提升 2D 空间局部性：
+
+```
+Linear (行优先):           Tiled (分块):
+┌──┬──┬──┬──┬──┬──┬──┬──┐ ┌──┬──┬──┬──┐
+│00│01│02│03│04│05│06│07│ │00│01│04│05│
+├──┼──┼──┼──┼──┼──┼──┼──┤ ├──┼──┼──┼──┤
+│08│09│10│11│12│13│14│15│ │02│03│06│07│
+├──┼──┼──┼──┼──┼──┼──┼──┤ ├──┼──┼──┼──┤
+│16│17│18│19│20│21│22│23│ │08│09│12│13│
+├──┼──┼──┼──┼──┼──┼──┼──┤ ├──┼──┼──┼──┤
+│24│25│26│27│28│29│30│31│ │10│11│14│15│
+└──┴──┴──┴──┴──┴──┴──┴──┘ └──┴──┴──┴──┘
+  4x8 像素连续存储            4x4 tile 存储
+```
+
+## 版本差异
+
+| 版本/架构 | 内存变更 |
+|-----------|----------|
+| NVIDIA Pascal (GP100) | HBM2 首次用于消费级 (Tesla P100) |
+| NVIDIA Ampere (GA100) | HBM2e, 2 TB/s 带宽 |
+| NVIDIA Hopper (GH100) | HBM3, 3.35 TB/s, TMA (Tensor Memory Accelerator) |
+| NVIDIA Blackwell (GB200) | HBM3e, 4.8 TB/s/stack, 第二代 TMA |
+| AMD RDNA 3 (Navi 31) | Chiplet 设计, 96MB Infinity Cache (L3) |
+| Intel Xe-HPG (Alchemist) | 16MB L2, GDDR6 |
+| Linux TTM v6.0+ | 引入 `ttm_resource_manager` 重构 |
+| Linux TTM v6.8+ | 支持可移动 BO 的批量迁移 |
+
+## 陷阱与注意事项
+
+- **显存碎片化：** 频繁分配/释放不同大小的 BO 会导致显存碎片化。TTM 的 buddy 分配器可缓解但不能完全消除。驱动开发者应尽量复用 BO 而非频繁创建/销毁。
+- **PCIe 带宽瓶颈：** 当数据需要在 GPU 和 CPU 之间频繁传输时，PCIe 带宽（~32 GB/s PCIe 4.0 x16）远低于显存带宽，成为瓶颈。应使用 DMA-BUF 零拷贝共享，或使用 Unified Memory (CUDA) / ReBAR (Resizable BAR)。
+- **TLB Miss 开销：** GPU 的 TLB 容量有限，大范围随机访问会导致大量 TLB miss。大页（2MB/1GB）可显著减少 TLB miss。
+- **共享内存 Bank Conflict：** 共享内存分为 32 个 bank（NVIDIA），同一 Warp 内不同线程访问同一 bank 的不同地址会序列化。通过 padding 或使用 `float4` 等宽类型访问可避免。
+- **NUMA 感知：** 多 GPU 系统中，应将数据分配在将要使用它的 GPU 的本地显存中。跨 GPU 访问（通过 NVLink/CXL）延迟更高。
+
+## 使用模式
+
+### Vulkan: 显存分配与绑定
 
 ```c
-// amdgpu 显存分配
-amdgpu_bo_create(adev, size, align, true, AMDGPU_GEM_DOMAIN_VRAM,
-                 0, NULL, NULL, &bo);
+// 查询内存类型
+VkPhysicalDeviceMemoryProperties memProps;
+vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
 
-// TTM buffer eviction
-ttm_bo_evict(bo, ctx);
-ttm_bo_validate(bo, &placement, &ctx);
+// 选择合适的内存类型（设备本地 + 设备端可见）
+uint32_t memTypeIndex = UINT32_MAX;
+for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+    if ((memProps.memoryTypes[i].propertyFlags &
+         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+        (typeFilter & (1 << i))) {
+        memTypeIndex = i;
+        break;
+    }
+}
+
+// 分配显存
+VkMemoryAllocateInfo allocInfo = {
+    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+    .allocationSize = requirements.size,
+    .memoryTypeIndex = memTypeIndex,
+};
+vkAllocateMemory(device, &allocInfo, NULL, &deviceMemory);
+
+// 绑定到 buffer
+vkBindBufferMemory(device, buffer, deviceMemory, 0);
 ```
 
----
+### CUDA: 统一内存 (Unified Memory)
 
-## 6. DMA-BUF 与显存共享
+```c
+// CUDA 统一内存 — 自动在 CPU/GPU 间迁移页面
+float* data;
+cudaMallocManaged(&data, size * sizeof(float));
 
-### 跨设备显存访问
+// GPU kernel 使用 — 首次访问触发页迁移到 GPU
+kernel<<<blocks, threads>>>(data, size);
 
-```
-GPU VRAM ──→ DMA-BUF ──→ Video Encoder (V4L2)
-           (零拷贝)       (直接 DMA 读取 VRAM)
-```
-
-- GPU 驱动实现 `dma_buf_ops` 接口
-- `pin()` 回调确保 buffer 驻留在 VRAM
-- `map_dma_buf()` 返回 scatter-gather 表
-
-### PCIe DMA
-
-```
-System RAM ──→ PCIe ──→ GPU VRAM
-  (CPU)      (带宽 ~16-32 GB/s, 延迟 ~1-2 μs)
+// CPU 使用 — 触发页迁移回 CPU（或使用 cudaMemPrefetchAsync 控制）
+cudaMemPrefetchAsync(data, size * sizeof(float), cudaCpuDeviceId);
 ```
 
-- PCIe 4.0 x16: ~32 GB/s
-- PCIe 5.0 x16: ~64 GB/s
-- CXL: 潜在的 GPU-CPU 内存扩展方案
+### 内核驱动: TTM BO 创建与驱逐
 
----
+```c
+// 创建 BO 并指定 placement
+struct ttm_placement placement = {
+    .num_placement = 1,
+    .placement = &(struct ttm_place){
+        .fpfn = 0,
+        .lpfn = 0,  // 无上界
+        .mem_type = TTM_PL_VRAM,  // 请求显存
+        .flags = TTM_PL_FLAG_CONTIGUOUS,
+    },
+};
 
-## 7. 三大厂商内存架构对比
+struct ttm_buffer_object *bo;
+int ret = ttm_bo_create(bdev, size, ttm_bo_type_device,
+                         &placement, &bo);
+if (ret == -ENOMEM) {
+    // 显存不足，TTM 已尝试驱逐但仍无法满足
+    // 可尝试降级到系统内存
+    placement.placement->mem_type = TTM_PL_TT;
+    ret = ttm_bo_create(bdev, size, ttm_bo_type_device,
+                         &placement, &bo);
+}
+```
 
-| 维度 | NVIDIA (Hopper H100) | AMD (RDNA 3) | Intel (Xe-HPG) |
-|------|---------------------|--------------|----------------|
-| L2 | 50 MB | 16 MB | 16 MB |
-| VRAM 类型 | HBM3 | GDDR6 | GDDR6 |
-| VRAM 容量 | 80 GB | 24 GB | 16 GB |
-| VRAM 带宽 | 3.35 TB/s | 576 GB/s | 512 GB/s |
-| 共享内存 | 228 KB/SM | 128 KB/CU | 64 KB/Slice |
-| L1 | 256 KB/SM | 32 KB/CU | 128 KB/Slice |
-| 内存管理器 | 自研 (NVMM) | TTM | 自研 |
+## Sources
 
----
-
-## 潜在影响
-
-- **AI 训练：** 大模型训练的显存需求（70B 参数 FP16 = ~140 GB）远超单卡容量，多卡 NVLink/CXL 互联和显存聚合是关键。
-- **游戏性能：** 4K 纹理流式加载依赖 VRAM 带宽和 L2 缓存命中率。RTX 5090 的 GDDR7 提供 ~1.8 TB/s 带宽，缓解了 4K 渲染的带宽瓶颈。
-- **驱动开发：** TTM 的驱逐策略直接影响 GPU 在显存不足时的性能表现。不合理的驱逐策略可能导致帧率骤降。
-- **演进方向：** HBM4 预计 2026 年量产，带宽将超过 2 TB/s/stack。CXL 3.0+ 为 GPU 扩展系统内存提供了新路径。
-
----
-
-## 信源
-
-- [GPU Memory Hierarchy & Optimization — abhik.ai](https://www.abhik.ai/concepts/gpu/memory-hierarchy)
-- [NVIDIA H100 Architecture — NVIDIA](https://resources.nvidia.com/en-us-tensor-core/nvidia-tensor-core-gpu-architecture)
-- [AMD RDNA 3 Architecture — GPUOpen](https://gpuopen.com/learn/rdna-3-architecture/)
-- [TTM — Linux kernel documentation](https://docs.kernel.org/gpu/drm-mm.html)
-- [drm/ttm — Linux v6.13](https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/ttm)
+- [P1] https://www.abhik.ai/concepts/gpu/memory-hierarchy — GPU Memory Hierarchy & Optimization: 五级层次结构、coalescing、bank conflict
+- [P1] https://resources.nvidia.com/en-us-tensor-core/nvidia-tensor-core-gpu-architecture — NVIDIA H100 Architecture: HBM3 带宽、TMA
+- [P1] https://gpuopen.com/learn/rdna-3-architecture/ — AMD RDNA 3 Architecture (GPUOpen): Infinity Cache、GDDR6 带宽
+- [P0] https://github.com/torvalds/linux/tree/v6.13/drivers/gpu/drm/ttm — drm/ttm: TTM Buffer Object 管理、驱逐策略、页面迁移
+- [P0] https://github.com/torvalds/linux/tree/v6.13/drivers/dma-buf — dma-buf: 跨设备内存共享
+- [P0] include/drm/ttm/ttm_bo_api.h — TTM BO API: ttm_bo_create/validate/evict 函数声明
+- [P0] include/drm/ttm/ttm_resource.h — TTM Resource Manager: 内存区域管理器定义
+- [P1] https://docs.kernel.org/gpu/drm-mm.html — Linux kernel GPU memory management documentation
