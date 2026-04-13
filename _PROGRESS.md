@@ -13,7 +13,7 @@
 |------|-------|------|------------|--------|--------|
 | Linux 驱动 | Agent-A | ✅ 队列清空 | atomic | 13 | 0 |
 | GPU/图显 | Agent-B | 🔄 执行中 | vulkan | 6 | 6 |
-| Android 图显 | Agent-C | 🔄 执行中 | surfaceflinger | 0 | 10 |
+| Android 图显 | Agent-C | 🔄 执行中 | gralloc | 7 | 3 |
 | AI 图显 | Agent-D | 🔄 执行中 | super-resolution | 1 | 9 |
 
 ### Agent-A 断点
@@ -41,10 +41,10 @@
 
 ```
 状态: 🔄 执行中
-当前子模块: surfaceflinger
-当前条目: architecture-overview
-已完成: []
-待完成: [architecture-overview, bufferqueue-flow, vsync-model, hwc2-interface, composition-types, gralloc-allocator, buffer-usage, vulkan-on-android, display-hal-aidl, display-color]
+当前子模块: vulkan-android
+当前条目: vulkan-on-android
+已完成: [architecture-overview ✅, bufferqueue-flow ✅, vsync-model ✅, hwc2-interface ✅, composition-types ✅, gralloc-allocator ✅, buffer-usage ✅]
+待完成: [vulkan-on-android, display-hal-aidl, display-color]
 ```
 
 ### Agent-D 断点（AI 图显）
@@ -81,6 +81,12 @@
 | KB-GPU-ARCH-vulkan-002 (vulkan-instance-device) | PASS | 0 | Phase2 98分 |
 | KB-GPU-ARCH-vulkan-003 (vulkan-command-buffer) | PASS | 0 | Phase2 98分 |
 | KB-AI-GFX-super-resolution-001 (overview) | PASS | 0 | Phase2 95分 |
+| KB-ANDROID-GFX-surfaceflinger-002 (bufferqueue-flow) | PASS | 0 | Phase2 97分 |
+| KB-ANDROID-GFX-surfaceflinger-003 (vsync-model) | PASS | 0 | Phase2 98分 |
+| KB-ANDROID-GFX-hwcomposer-001 (hwc2-interface) | PASS | 0 | Phase2 98分 |
+| KB-ANDROID-GFX-hwcomposer-002 (composition-types) | PASS | 0 | Phase2 98分 |
+| KB-ANDROID-GFX-gralloc-001 (gralloc-allocator) | PASS | 0 | Phase2 98分 |
+| KB-ANDROID-GFX-gralloc-002 (buffer-usage) | PASS | 0 | Phase2 98分 |
 
 ---
 
