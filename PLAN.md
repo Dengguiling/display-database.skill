@@ -190,22 +190,36 @@
 | LKML patch & discussion | P2 | 最新变更与设计决策 |
 | LWN GPU/DRM 文章 | P3 | 背景补充 |
 
-**当前子任务队列：**
+**当前子任务队列（Phase 2 — 2026-04-14）：**
 | # | 子模块 | 条目 | 状态 |
 |---|--------|------|------|
-| 1 | atomic | commit-flow | ⬜ |
-| 2 | atomic | state-mgmt | ⬜ |
-| 3 | atomic | helpers | ⬜ |
-| 4 | atomic | nonblocking | ⬜ |
-| 5 | crtc | crtc-state | ⬜ |
-| 6 | crtc | vblank | ⬜ |
-| 7 | plane | plane-state | ⬜ |
-| 8 | connector | connector-state | ⬜ |
-| 9 | encoder | encoder-state | ⬜ |
-| 10 | fb | framebuffer | ⬜ |
-| 11 | property | drm-property | ⬜ |
-| 12 | gem | gem-objects | ⬜ |
-| 13 | dma-buf | dma-buf-overview | ⬜ |
+| 1 | driver | drm-driver-model | ⬜ |
+| 2 | driver | drm-device | ⬜ |
+| 3 | kms-core | kms-init | ⬜ |
+| 4 | connector | connector-detection | ⬜ |
+| 5 | connector | connector-modes | ⬜ |
+| 6 | encoder | bridge-framework | ⬜ |
+| 7 | dma-buf | dma-fence | ⬜ |
+| 8 | dma-buf | dma-resv | ⬜ |
+| 9 | gem | gem-mmap | ⬜ |
+| 10 | fb | damage-tracking | ⬜ |
+
+**Phase 1 已完成（2026-04-11 ~ 2026-04-13）：**
+| # | 子模块 | 条目 | 状态 |
+|---|--------|------|------|
+| 1 | atomic | commit-flow | ✅ |
+| 2 | atomic | state-mgmt | ✅ |
+| 3 | atomic | helpers | ✅ |
+| 4 | atomic | nonblocking | ✅ |
+| 5 | crtc | crtc-state | ✅ |
+| 6 | crtc | vblank | ✅ |
+| 7 | plane | plane-state | ✅ |
+| 8 | connector | connector-state | ✅ |
+| 9 | encoder | encoder-state | ✅ |
+| 10 | fb | framebuffer | ✅ |
+| 11 | property | drm-property | ✅ |
+| 12 | gem | gem-objects | ✅ |
+| 13 | dma-buf | dma-buf-overview | ✅ |
 
 ### 3.2 Agent-B：GPU/图显方向
 

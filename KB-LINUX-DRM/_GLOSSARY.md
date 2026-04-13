@@ -13,3 +13,7 @@
 | CRTC | Cathode Ray Tube Controller，DRM 中表示显示控制器 | KB-LINUX-DRM-atomic-001 |
 | Plane | 硬件叠加层，表示一个可独立扫描的图像源 | KB-LINUX-DRM-atomic-001 |
 | dma-buf | Linux 内核共享缓冲区机制，用于跨设备/跨进程缓冲区共享 | KB-LINUX-DRM-atomic-001 |
+| drm_driver | DRM 驱动描述结构体，包含驱动能力标志和回调方法 | KB-LINUX-DRM-driver-001 |
+| drm_device | DRM 设备实例，每个物理 GPU 对应一个 | KB-LINUX-DRM-driver-001 |
+| devm_drm_dev_alloc | 现代 DRM 设备分配 API，managed resource 模式 | KB-LINUX-DRM-driver-001 |
+| drmm_* | DRM managed resource API，绑定到 drm_device 生命周期的自动资源回收 | KB-LINUX-DRM-driver-001 |

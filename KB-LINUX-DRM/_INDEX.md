@@ -9,14 +9,22 @@ DRM (Direct Rendering Manager) 是 Linux 内核的图形子系统核心框架，
 | 子模块 | 说明 | 状态 |
 |--------|------|------|
 | [atomic](atomic/) | Atomic 模式：状态管理、commit 流程、异步提交、VBlank、GEM、DMA-BUF | ✅ 已完成 (13条) |
+| [driver](driver/) | DRM 驱动模型：注册、设备生命周期、managed resource | 🔄 建设中 (1条) |
+| kms-core | KMS 初始化与 mode_config | ⬜ 待建设 |
 | crtc | CRTC：显示控制器、VBlank、事件 | ⬜ 待建设 |
 | plane | Plane：硬件叠加层、更新与禁用 | ⬜ 待建设 |
 | connector | Connector：显示输出连接器 | ⬜ 待建设 |
-| encoder | Encoder：信号编码器 | ⬜ 待建设 |
-| fb | Framebuffer：帧缓冲管理 | ⬜ 待建设 |
+| encoder | Encoder：信号编码器、Bridge 框架 | ⬜ 待建设 |
+| fb | Framebuffer：帧缓冲管理、damage tracking | ⬜ 待建设 |
 | property | Property：原子属性系统 | ⬜ 待建设 |
 | gem | GEM：图形执行管理器（显存管理） | ⬜ 待建设 |
-| dma-buf | DMA-BUF：共享缓冲区 | ⬜ 待建设 |
+| dma-buf | DMA-BUF：共享缓冲区、Fence、Reservation | ⬜ 待建设 |
+
+## driver 子模块条目索引
+
+| # | 条目ID | 文件 | 核心主题 | 评审 |
+|---|--------|------|----------|------|
+| 1 | driver-001 | [drm-driver-model](driver/drm-driver-model.md) | DRM 驱动注册、drm_driver/drm_device、managed resource | ✅ 96分 |
 
 ## atomic 子模块条目索引
 
@@ -40,6 +48,11 @@ DRM (Direct Rendering Manager) 是 Linux 内核的图形子系统核心框架，
 
 | 你可能的问题 | 定位 |
 |-------------|------|
+| DRM 驱动如何注册和初始化？ | [→ driver/drm-driver-model] |
+| struct drm_driver 和 struct drm_device 的关系？ | [→ driver/drm-driver-model] |
+| devm_drm_dev_alloc 的使用方式？ | [→ driver/drm-driver-model] |
+| drmm_* 和 devm_* 的区别？ | [→ driver/drm-driver-model] |
+| DRIVER_ATOMIC / DRIVER_GEM / DRIVER_MODESET 标志含义？ | [→ driver/drm-driver-model] |
 | DRM atomic commit 的完整流程是什么？ | [→ atomic/commit-flow] |
 | atomic_check 和 atomic_commit 的区别？ | [→ atomic/commit-flow] |
 | 非阻塞提交和同步提交有什么不同？ | [→ atomic/commit-flow] |

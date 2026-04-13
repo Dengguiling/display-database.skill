@@ -5,26 +5,26 @@
 
 ---
 
-## 当前日期：2026-04-13
+## 当前日期：2026-04-14
 
 ### 总体状态
 
 | 方向 | Agent | 状态 | 当前子模块 | 已完成 | 待完成 |
 |------|-------|------|------------|--------|--------|
-| Linux 驱动 | Agent-A | ✅ 队列清空 | atomic | 13 | 0 |
-| GPU/图显 | Agent-B | 🔄 执行中 | vulkan | 6 | 6 |
-| Android 图显 | Agent-C | 🔄 执行中 | gralloc | 7 | 3 |
-| AI 图显 | Agent-D | 🔄 执行中 | super-resolution | 1 | 9 |
+| Linux 驱动 | Agent-A | 🔄 执行中 | driver | 0 | 10 |
+| GPU/图显 | Agent-B | 🔄 执行中 | vulkan | 7 | 5 |
+| Android 图显 | Agent-C | ⏸️ 待恢复 | vulkan-android | 7 | 3 |
+| AI 图显 | Agent-D | ⏸️ 待恢复 | super-resolution | 1 | 9 |
 
 ### Agent-A 断点
 
 ```
-状态: ✅ 队列清空
-当前子模块: atomic
-当前条目: (无)
-已完成: [commit-flow ✅, state-mgmt ✅, helpers ✅, nonblocking ✅, vblank ✅, plane-state ✅, connector-state ✅, crtc-state ✅, encoder-state ✅, framebuffer ✅, drm-property ✅, gem-objects ✅, dma-buf-overview ✅]
-待完成: []
-备注: 2026-04-13 批量评审完成，13/13 条目全部 PASS，平均评分 96.0
+状态: 🔄 执行中（Phase 2）
+当前子模块: driver
+当前条目: drm-device
+已完成: [drm-driver-model ✅]
+待完成: [drm-device, kms-init, connector-detection, connector-modes, bridge-framework, dma-fence, dma-resv, gem-mmap, damage-tracking]
+备注: Phase 2 队列，扩展到 driver/kms-core/connector/encoder/dma-buf/gem/fb 子模块
 ```
 
 ### Agent-B 断点
@@ -32,9 +32,9 @@
 ```
 状态: 🔄 执行中
 当前子模块: vulkan
-当前条目: vulkan-pipeline
-已完成: [gpu-rendering-pipeline ✅, shader-core-arch ✅, gpu-memory-hierarchy ✅, vulkan-overview ✅, vulkan-instance-device ✅, vulkan-command-buffer ✅]
-待完成: [vulkan-pipeline, vulkan-memory, dx12-overview, dx12-command-queue, dx12-pipeline, dx12-resource-memory]
+当前条目: vulkan-memory
+已完成: [gpu-rendering-pipeline ✅, shader-core-arch ✅, gpu-memory-hierarchy ✅, vulkan-overview ✅, vulkan-instance-device ✅, vulkan-command-buffer ✅, vulkan-pipeline ✅]
+待完成: [vulkan-memory, dx12-overview, dx12-command-queue, dx12-pipeline, dx12-resource-memory]
 ```
 
 ### Agent-C 断点（Android 图显）
@@ -80,6 +80,7 @@
 | KB-GPU-ARCH-vulkan-001 (vulkan-overview) | PASS | 0 | Phase2 97分 |
 | KB-GPU-ARCH-vulkan-002 (vulkan-instance-device) | PASS | 0 | Phase2 98分 |
 | KB-GPU-ARCH-vulkan-003 (vulkan-command-buffer) | PASS | 0 | Phase2 98分 |
+| KB-GPU-ARCH-vulkan-004 (vulkan-pipeline) | PASS | 0 | Phase1 8/8 |
 | KB-AI-GFX-super-resolution-001 (overview) | PASS | 0 | Phase2 95分 |
 | KB-ANDROID-GFX-surfaceflinger-002 (bufferqueue-flow) | PASS | 0 | Phase2 97分 |
 | KB-ANDROID-GFX-surfaceflinger-003 (vsync-model) | PASS | 0 | Phase2 98分 |
